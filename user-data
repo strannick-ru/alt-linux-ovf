@@ -1,0 +1,73 @@
+#cloud-config
+
+write_files:
+  - content: |
+      Dpkg::Options {
+         "--force-confdef";
+         "--force-confold";
+         "--force-confmiss";
+      }
+    path: /etc/apt/apt.conf.d/local
+
+  - content: |
+      #!/usr/bin/env bash
+      
+      apt-get -q update > /var/log/apt.log 2>&1
+      apt-get -q -y install sudo curl wget pv mc vim-console unzip zstd htop tmux prometheus-node_exporter ripgrep >> /var/log/apt.log 2>&1
+      apt-get -q -y autoremove >> /var/log/apt.log 2>&1
+      apt-get -q clean >> /var/log/apt.log 2>&1
+      
+      systemctl disable update-packages.service >> /var/log/apt.log 2>&1
+    path: /root/apt.sh
+    permissions: '0700'
+
+  - content: |
+      [Unit]
+      Description=Update all and install packages
+      After=local-fs.target
+      After=network.target
+      
+      [Service]
+      ExecStart=/root/apt.sh
+      RemainAfterExit=true
+      Type=oneshot
+      
+      [Install]
+      WantedBy=multi-user.target
+    path: /etc/systemd/system/update-packages.service
+
+package_update: false
+
+runcmd:
+  - chmod 600 /etc/netplan/*.yaml
+  - grep -q mitigations /etc/default/grub || sed -i 's/panic=30 splash/panic=30 splash mitigations=off/g' /etc/default/grub
+  - update-grub
+  - usermod --password '$6$WjSjY4HVF6/fia0.$PPDEGaYA//fOKKweD0WfKGKPH5SdGR2LOHLU17hbWC96tweR1OZIFV2YV9OcH8hJvFLyVPOj/lsyW1DzxAVTp0' root
+  - 'sed -i "s/disable_root: true/disable_root: false/g" /etc/cloud/cloud.cfg'
+  - 'sed -i "s/preserve_hostname: false/preserve_hostname: true/g" /etc/cloud/cloud.cfg'
+  - 'sed -i "s/#SystemMaxUse=/SystemMaxUse=50M/g" /etc/systemd/journald.conf'
+  - rm -f /etc/os-release /etc/issue
+  - mv -f /etc/os-release.alt /etc/os-release
+  - ln -s /etc/altlinux-release /etc/system-release
+  - ln -s /etc/altlinux-release /etc/redhat-release
+  - ln -s /etc/altlinux-release /etc/fedora-release
+  - systemctl enable update-packages.service
+  - touch /var/tmp/reboot_me
+
+power_state:
+  delay: 30
+  mode: reboot
+  message: Rebooting machine
+  condition: test -f /var/tmp/reboot_me
+
+users:
+  - name: habr
+    gecos: Habr User
+    shell: /bin/bash
+    sudo: ALL=(ALL) ALL
+    groups: sudo
+    ssh_import_id: None
+    lock_passwd: false
+    passwd: $6$oJ10kVQ5i3HDNChj$Mc8yKon34/5Oc7.EH3rUFt5y4nBCU7KePBSdtKsi16gn2Gx.qagkRonc1ycLSRHY.dH/xBU4B2YjXAPwcrW6/1
+    ssh_authorized_keys:
+      - ssh-ed25519 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP8Y7aGB+yB+69ZvjF5l2E0kK41U3YigiFxeR82h9+A1 habr@user
